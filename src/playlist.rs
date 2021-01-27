@@ -3,32 +3,43 @@
 //! The main type here is the `Playlist` enum.
 //! Which is either a `MasterPlaylist` or a `MediaPlaylist`.
 
-use std::io::Write;
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::fmt;
 use super::*;
+use std::collections::HashMap;
 use std::f32;
+use std::fmt;
+use std::io::Write;
+use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 macro_rules! write_some_attribute_quoted {
-    ($w:expr, $tag:expr, $o:expr) => (
-        if let &Some(ref v) = $o { write!($w, "{}=\"{}\"", $tag, v)  } else { Ok(()) }
-    );
+    ($w:expr, $tag:expr, $o:expr) => {
+        if let &Some(ref v) = $o {
+            write!($w, "{}=\"{}\"", $tag, v)
+        } else {
+            Ok(())
+        }
+    };
 }
 
 macro_rules! write_some_attribute {
-    ($w:expr, $tag:expr, $o:expr) => (
-        if let &Some(ref v) = $o { write!($w, "{}={}", $tag, v) } else { Ok(()) }
-    );
+    ($w:expr, $tag:expr, $o:expr) => {
+        if let &Some(ref v) = $o {
+            write!($w, "{}={}", $tag, v)
+        } else {
+            Ok(())
+        }
+    };
 }
 
 macro_rules! bool_default_false {
-    ($optional:expr) => (
+    ($optional:expr) => {
         match $optional {
             Some(ref s) if s == "YES" => true,
             Some(_) | None => false,
         }
-    );
+    };
 }
 
 /// [Playlist](https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-4.1),
@@ -39,6 +50,7 @@ macro_rules! bool_default_false {
 /// lines in the Playlist identify Media Playlists.  A Playlist MUST be
 /// either a Media Playlist or a Master Playlist; all other Playlists are invalid.
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Playlist {
     MasterPlaylist(MasterPlaylist),
     MediaPlaylist(MediaPlaylist),
@@ -62,6 +74,7 @@ impl Playlist {
 /// provides a set of Variant Streams, each of which
 /// describes a different version of the same content.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MasterPlaylist {
     pub version: usize,
     pub variants: Vec<VariantStream>,
@@ -72,7 +85,6 @@ pub struct MasterPlaylist {
 }
 
 impl MasterPlaylist {
-
     pub fn from_tags(mut tags: Vec<MasterPlaylistTag>) -> MasterPlaylist {
         let mut master_playlist = MasterPlaylist::default();
         let mut alternatives = vec![];
@@ -122,7 +134,7 @@ impl MasterPlaylist {
     }
 
     pub fn write_to<T: Write>(&self, w: &mut T) -> std::io::Result<()> {
-        writeln!(w, "{}" ,"#EXTM3U")?;
+        writeln!(w, "{}", "#EXTM3U")?;
         writeln!(w, "#EXT-X-VERSION:{}", self.version)?;
 
         for variant in &self.variants {
@@ -163,6 +175,7 @@ impl MasterPlaylist {
 /// network conditions.  Clients should choose Renditions based on user
 /// preferences.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VariantStream {
     pub is_i_frame: bool,
     pub uri: String,
@@ -182,7 +195,6 @@ pub struct VariantStream {
 }
 
 impl VariantStream {
-
     pub fn from_hashmap(mut attrs: HashMap<String, String>, is_i_frame: bool) -> VariantStream {
         VariantStream {
             is_i_frame: is_i_frame,
@@ -201,7 +213,6 @@ impl VariantStream {
     }
 
     pub fn write_to<T: Write>(&self, w: &mut T) -> std::io::Result<()> {
-
         for alternative in &self.alternatives {
             alternative.write_to(w)?;
         }
@@ -210,8 +221,7 @@ impl VariantStream {
             write!(w, "#EXT-X-I-FRAME-STREAM-INF:")?;
             self.write_stream_inf_common_attributes(w)?;
             writeln!(w, ",URI=\"{}\"", self.uri)
-        }
-        else {
+        } else {
             write!(w, "#EXT-X-STREAM-INF:")?;
             self.write_stream_inf_common_attributes(w)?;
             write_some_attribute_quoted!(w, ",AUDIO", &self.audio)?;
@@ -242,6 +252,7 @@ impl VariantStream {
 /// of the same presentation.  Or two EXT-X-MEDIA tags can be used to
 /// identify video-only Media Playlists that show two different camera angles.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AlternativeMedia {
     // <attribute-list>
     pub media_type: AlternativeMediaType,
@@ -258,10 +269,10 @@ pub struct AlternativeMedia {
 }
 
 impl AlternativeMedia {
-
     pub fn from_hashmap(mut attrs: HashMap<String, String>) -> AlternativeMedia {
         AlternativeMedia {
-            media_type: attrs.get("TYPE")
+            media_type: attrs
+                .get("TYPE")
                 .and_then(|s| AlternativeMediaType::from_str(s).ok())
                 .unwrap_or_else(Default::default),
             uri: attrs.remove("URI"),
@@ -285,9 +296,15 @@ impl AlternativeMedia {
         write_some_attribute_quoted!(w, ",LANGUAGE", &self.language)?;
         write_some_attribute_quoted!(w, ",ASSOC-LANGUAGE", &self.assoc_language)?;
         write!(w, ",NAME=\"{}\"", self.name)?;
-        if self.default { write!(w, ",DEFAULT=YES")?; }
-        if self.autoselect { write!(w, ",AUTOSELECT=YES")?; }
-        if self.forced { write!(w, ",FORCED=YES")?; }
+        if self.default {
+            write!(w, ",DEFAULT=YES")?;
+        }
+        if self.autoselect {
+            write!(w, ",AUTOSELECT=YES")?;
+        }
+        if self.forced {
+            write!(w, ",FORCED=YES")?;
+        }
         write_some_attribute_quoted!(w, ",INSTREAM-ID", &self.instream_id)?;
         write_some_attribute_quoted!(w, ",CHARACTERISTICS", &self.characteristics)?;
         write!(w, "\n")
@@ -295,6 +312,7 @@ impl AlternativeMedia {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum AlternativeMediaType {
     Audio,
     Video,
@@ -311,7 +329,10 @@ impl FromStr for AlternativeMediaType {
             "VIDEO" => Ok(AlternativeMediaType::Video),
             "SUBTITLES" => Ok(AlternativeMediaType::Subtitles),
             "CLOSEDCAPTIONS" => Ok(AlternativeMediaType::ClosedCaptions),
-            _ => Err(format!("Unable to create AlternativeMediaType from {:?}", s)),
+            _ => Err(format!(
+                "Unable to create AlternativeMediaType from {:?}",
+                s
+            )),
         }
     }
 }
@@ -324,19 +345,23 @@ impl Default for AlternativeMediaType {
 
 impl fmt::Display for AlternativeMediaType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            &AlternativeMediaType::Audio => "AUDIO",
-            &AlternativeMediaType::Video => "VIDEO",
-            &AlternativeMediaType::Subtitles => "SUBTITLES",
-            &AlternativeMediaType::ClosedCaptions => "CLOSEDCAPTIONS",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                &AlternativeMediaType::Audio => "AUDIO",
+                &AlternativeMediaType::Video => "VIDEO",
+                &AlternativeMediaType::Subtitles => "SUBTITLES",
+                &AlternativeMediaType::ClosedCaptions => "CLOSEDCAPTIONS",
+            }
+        )
     }
 }
-
 
 /// [`#EXT-X-SESSION-KEY:<attribute-list>`]
 /// (https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-4.3.4.5)
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SessionKey(pub Key);
 
 impl SessionKey {
@@ -353,6 +378,7 @@ impl SessionKey {
 /// to be specified in a Master Playlist.  This allows the client to
 /// preload these keys without having to read the Media Playlist(s) first.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SessionData {
     pub data_id: String,
     pub value: String,
@@ -389,6 +415,7 @@ impl SessionData {
 /// contains a list of Media Segments, which when played
 /// sequentially will play the multimedia presentation.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MediaPlaylist {
     pub version: usize,
     /// `#EXT-X-TARGETDURATION:<s>`
@@ -411,7 +438,6 @@ pub struct MediaPlaylist {
 }
 
 impl MediaPlaylist {
-
     pub fn from_tags(mut tags: Vec<MediaPlaylistTag>) -> MediaPlaylist {
         let mut media_playlist = MediaPlaylist::default();
         let mut next_segment = MediaSegment::empty();
@@ -419,7 +445,6 @@ impl MediaPlaylist {
         let mut map = None;
 
         while let Some(tag) = tags.pop() {
-
             match tag {
                 MediaPlaylistTag::Version(v) => {
                     media_playlist.version = v;
@@ -448,42 +473,40 @@ impl MediaPlaylist {
                 MediaPlaylistTag::IndependentSegments => {
                     media_playlist.independent_segments = true;
                 }
-                MediaPlaylistTag::Segment(segment_tag) => {
-                    match segment_tag {
-                        SegmentTag::Extinf(d, t) => {
-                            next_segment.duration = d;
-                            next_segment.title = t;
-                        }
-                        SegmentTag::ByteRange(b) => {
-                            next_segment.byte_range = Some(b);
-                        }
-                        SegmentTag::Discontinuity => {
-                            next_segment.discontinuity = true;
-                        }
-                        SegmentTag::Key(k) => {
-                            encryption_key = Some(k);
-                        }
-                        SegmentTag::Map(m) => {
-                            map = Some(m);
-                        }
-                        SegmentTag::ProgramDateTime(d) => {
-                            next_segment.program_date_time = Some(d);
-                        }
-                        SegmentTag::DateRange(d) => {
-                            next_segment.daterange = Some(d);
-                        }
-                        SegmentTag::Uri(u) => {
-                            next_segment.key = encryption_key.clone();
-                            next_segment.map = map.clone();
-                            next_segment.uri = u;
-                            media_playlist.segments.push(next_segment);
-                            next_segment = MediaSegment::empty();
-                            encryption_key = None;
-                            map = None;
-                        }
-                        _ => (),
+                MediaPlaylistTag::Segment(segment_tag) => match segment_tag {
+                    SegmentTag::Extinf(d, t) => {
+                        next_segment.duration = d;
+                        next_segment.title = t;
                     }
-                }
+                    SegmentTag::ByteRange(b) => {
+                        next_segment.byte_range = Some(b);
+                    }
+                    SegmentTag::Discontinuity => {
+                        next_segment.discontinuity = true;
+                    }
+                    SegmentTag::Key(k) => {
+                        encryption_key = Some(k);
+                    }
+                    SegmentTag::Map(m) => {
+                        map = Some(m);
+                    }
+                    SegmentTag::ProgramDateTime(d) => {
+                        next_segment.program_date_time = Some(d);
+                    }
+                    SegmentTag::DateRange(d) => {
+                        next_segment.daterange = Some(d);
+                    }
+                    SegmentTag::Uri(u) => {
+                        next_segment.key = encryption_key.clone();
+                        next_segment.map = map.clone();
+                        next_segment.uri = u;
+                        media_playlist.segments.push(next_segment);
+                        next_segment = MediaSegment::empty();
+                        encryption_key = None;
+                        map = None;
+                    }
+                    _ => (),
+                },
                 _ => (),
             }
         }
@@ -491,7 +514,7 @@ impl MediaPlaylist {
     }
 
     pub fn write_to<T: Write>(&self, w: &mut T) -> std::io::Result<()> {
-        writeln!(w, "{}" ,"#EXTM3U")?;
+        writeln!(w, "{}", "#EXTM3U")?;
         writeln!(w, "#EXT-X-VERSION:{}", self.version)?;
         writeln!(w, "#EXT-X-TARGETDURATION:{}", self.target_duration)?;
 
@@ -499,7 +522,11 @@ impl MediaPlaylist {
             writeln!(w, "#EXT-X-MEDIA-SEQUENCE:{}", self.media_sequence)?;
         }
         if self.discontinuity_sequence != 0 {
-            writeln!(w, "#EXT-X-DISCONTINUITY-SEQUENCE:{}", self.discontinuity_sequence)?;
+            writeln!(
+                w,
+                "#EXT-X-DISCONTINUITY-SEQUENCE:{}",
+                self.discontinuity_sequence
+            )?;
         }
         if self.end_list {
             writeln!(w, "#EXT-X-ENDLIST")?;
@@ -527,6 +554,7 @@ impl MediaPlaylist {
 /// [`#EXT-X-PLAYLIST-TYPE:<EVENT|VOD>`]
 /// (https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-4.3.3.5)
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum MediaPlaylistType {
     Event,
     Vod,
@@ -546,10 +574,14 @@ impl FromStr for MediaPlaylistType {
 
 impl fmt::Display for MediaPlaylistType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            &MediaPlaylistType::Event => "EVENT",
-            &MediaPlaylistType::Vod => "VOD",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                &MediaPlaylistType::Event => "EVENT",
+                &MediaPlaylistType::Vod => "VOD",
+            }
+        )
     }
 }
 
@@ -566,6 +598,7 @@ impl Default for MediaPlaylistType {
 /// A [Media Segment](https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-3)
 /// is specified by a URI and optionally a byte range.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MediaSegment {
     pub uri: String,
     /// `#EXTINF:<duration>,[<title>]`
@@ -592,7 +625,6 @@ impl MediaSegment {
     }
 
     pub fn write_to<T: Write>(&self, w: &mut T) -> std::io::Result<()> {
-
         if let Some(ref byte_range) = self.byte_range {
             write!(w, "#EXT-X-BYTERANGE:")?;
             byte_range.write_value_to(w)?;
@@ -640,6 +672,7 @@ impl MediaSegment {
 /// EXT-X-KEY tags with different KEYFORMAT attributes MAY apply to the
 /// same Media Segment if they ultimately produce the same decryption key.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Key {
     pub method: String,
     pub uri: Option<String>,
@@ -679,6 +712,7 @@ impl Key {
 /// Playlist until the next EXT-X-MAP tag or until the end of the
 /// playlist.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Map {
     pub uri: String,
     pub byte_range: Option<ByteRange>,
@@ -702,7 +736,6 @@ impl Map {
     }
 }
 
-
 /// [`#EXT-X-BYTERANGE:<n>[@<o>]`]
 /// (https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-4.3.2.2)
 ///
@@ -710,6 +743,7 @@ impl Map {
 /// of the resource identified by its URI.  It applies only to the next
 /// URI line that follows it in the Playlist.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ByteRange {
     pub length: i32,
     pub offset: Option<i32>,
@@ -741,7 +775,6 @@ impl<'a> From<&'a str> for ByteRange {
     }
 }
 
-
 /// [`#EXT-X-DATERANGE:<attribute-list>`]
 /// (https://tools.ietf.org/html/draft-pantos-http-live-streaming-19#section-4.3.2.7)
 ///
@@ -771,6 +804,7 @@ pub struct DateRange {
 /// playing a Playlist. By default, clients SHOULD start playback at
 /// this point when beginning a playback session.
 #[derive(Debug, Default, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Start {
     pub time_offset: String,
     pub precise: Option<String>,

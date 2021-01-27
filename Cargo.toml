@@ -10,3 +10,4 @@ license = "MIT"
 
 [dependencies]
 nom = "5.1.0"
+serde = { version = "1.0.123", features = ["derive"], optional = true }
